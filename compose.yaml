@@ -1,0 +1,77 @@
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_USER: user_orga
+      POSTGRES_DB: organisationdb
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - reseau_interne
+    secrets:
+      - db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user_orga -d organisationdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./api
+    ports:
+      - "5000:5000"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_USER: user_orga
+      POSTGRES_DB: organisationdb
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      WORKER_URL: http://worker:8000
+    depends_on:
+      db:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    networks:
+      - reseau_interne
+      - reseau_public
+    secrets:
+      - db_password
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:3000"
+    depends_on:
+      - api
+    networks:
+      - reseau_public
+
+  worker:
+    build: ./worker
+    
+    networks:
+      - reseau_interne
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      
+volumes:
+  pg_data:
+
+networks:
+  reseau_interne:
+    driver: bridge
+    internal: true
+  reseau_public:
+    driver: bridge
+
+secrets:
+  db_password:
+    file: ./db_password.txt
